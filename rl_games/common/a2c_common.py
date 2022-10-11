@@ -1063,7 +1063,6 @@ class ContinuousA2CBase(A2CBase):
                 if self.bounds_loss_coef is not None:
                     b_losses.append(b_loss)
 
-                self.dataset.update_mu_sigma(cmu, csigma)
                 if self.schedule_type == 'legacy':
                     av_kls = kl
                     if self.multi_gpu:
@@ -1076,14 +1075,16 @@ class ContinuousA2CBase(A2CBase):
             if self.multi_gpu:
                 dist.all_reduce(av_kls, op=dist.ReduceOp.SUM)
                 av_kls /= self.rank_size
-            if self.schedule_type == 'standard':
-                self.last_lr, self.entropy_coef = self.scheduler.update(self.last_lr, self.entropy_coef, self.epoch_num, 0, av_kls.item())
-                self.update_lr(self.last_lr)
-
             kls.append(av_kls)
+
             self.diagnostics.mini_epoch(self, mini_ep)
             if self.normalize_input:
                 self.model.running_mean_std.eval() # don't need to update statstics more than one miniepoch
+        
+        # Only use the av_kls from the last mini-epoch.
+        if self.schedule_type == 'standard':
+            self.last_lr, self.entropy_coef = self.scheduler.update(self.last_lr, self.entropy_coef, self.epoch_num, 0, av_kls.item())
+            self.update_lr(self.last_lr)
 
         update_time_end = time.time()
         play_time = play_time_end - play_time_start
